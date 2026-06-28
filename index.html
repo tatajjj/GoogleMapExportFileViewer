@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>我的專屬地圖時光機 🌍 15.0 旗艦操作優化版</title>
+    <title>我的專屬地圖時光機 🌍 15.1 狀態隨行版</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
@@ -14,8 +14,8 @@
         #control-panel { background: var(--panel-bg); color: white; padding: 12px 15px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.3); z-index: 1010; transition: transform 0.3s ease; position: relative; }
         #control-panel.collapsed { transform: translateY(-100%); position: absolute; width: 100%; box-sizing: border-box; }
         
-        /* 頂部控制面板 - 浮貼收折按鈕 */
-        #togglePanelBtn { position: absolute; bottom: -28px; left: 15px; height: 28px; background: var(--panel-bg); color: white; border: none; border-radius: 0 0 6px 6px; font-size: 11px; cursor: pointer; z-index: 1020; box-shadow: 0 2px 5px rgba(0,0,0,0.2); padding: 0 10px; line-height: 28px; }
+        /* 頂部控制面板 - 浮貼收折按鈕（增加寬度適應動態文字） */
+        #togglePanelBtn { position: absolute; bottom: -28px; left: 15px; height: 28px; background: var(--panel-bg); color: white; border: none; border-radius: 0 0 6px 6px; font-size: 11px; cursor: pointer; z-index: 1020; box-shadow: 0 2px 5px rgba(0,0,0,0.2); padding: 0 12px; line-height: 28px; white-space: nowrap; font-weight: bold; }
 
         /* 主容器 */
         #main-container { display: flex; flex-grow: 1; width: 100%; overflow: hidden; position: relative; }
@@ -29,11 +29,11 @@
         #toggleListBtn { position: absolute; top: 80px; left: 310px; width: 28px; background: #34495e; color: white; border: none; border-radius: 0 6px 6px 0; font-size: 11px; cursor: pointer; z-index: 1006; box-shadow: 2px 0 5px rgba(0,0,0,0.2); padding: 12px 0; text-align: center; writing-mode: vertical-lr; line-height: 28px; letter-spacing: 1px; transition: left 0.3s ease; }
         #toggleListBtn.collapsed { left: 0px; }
 
-        /* 🚀 核心優化：當清單收合時，左右下角浮現的快捷導覽按鈕 */
+        /* 左右下角浮現的快捷導覽按鈕 */
         .float-nav-btn { position: absolute; bottom: 30px; width: 56px; height: 56px; background: rgba(44, 62, 80, 0.85); color: white; border: 1px solid rgba(255,255,255,0.2); border-radius: 50%; font-size: 20px; font-weight: bold; cursor: pointer; z-index: 1008; box-shadow: 0 4px 10px rgba(0,0,0,0.4); display: none; align-items: center; justify-content: center; backdrop-filter: blur(4px); transition: all 0.2s ease; }
         .float-nav-btn:active { background: var(--google-blue); transform: scale(0.9); }
         .float-nav-btn:disabled { background: rgba(180, 190, 200, 0.5); color: #95a5a6; cursor: not-allowed; }
-        #floatPrevBtn { left: 50px; }  /* 避開原生的 Leaflet 縮放鈕或維持對稱 */
+        #floatPrevBtn { left: 50px; }
         #floatNextBtn { right: 25px; }
 
         /* 清除資料庫按鈕 */
@@ -65,6 +65,7 @@
             #control-panel { flex-direction: column; width: 220px; height: 100vh; max-height: none; justify-content: flex-start; align-items: stretch; padding: 15px 10px; }
             #control-panel.collapsed { transform: translateX(-100%); width: 220px; height: 100vh; position: absolute; }
             
+            /* 橫向時，按鈕依然直書貼在右邊緣 */
             #togglePanelBtn { bottom: auto; right: -28px; left: auto; top: 15px; width: 28px; height: auto; padding: 12px 0; border-radius: 0 6px 6px 0; writing-mode: vertical-lr; line-height: 28px; }
             
             #main-container { flex-grow: 1; height: 100vh; }
@@ -88,7 +89,7 @@
 
     <div id="control-panel">
         <button id="togglePanelBtn">⚙️ 收起選單</button>
-        <h3 style="margin: 0; font-size: 14px; text-align: center;">🌍 地圖時光機 15.0</h3>
+        <h3 style="margin: 0; font-size: 14px; text-align: center;">🌍 地圖時光機 15.1</h3>
         <div class="file-input-container">
             <input type="file" id="jsonFile" accept=".json" style="font-size: 11px; max-width: 100%;" />
         </div>
@@ -139,6 +140,7 @@
         let dateGroups = {};       
         let sortedDatesArray = []; 
         let currentGlobalDate = "";
+        let currentDayPointsCount = 0; // 儲存當日座標數供狀態列使用
 
         // ==========================================
         // 💾 INDEXEDDB 本地快取核心資料庫引擎
@@ -196,7 +198,7 @@
             const store = tx.objectStore(STORE_NAME);
             store.delete("user_track_data");
             alert("快取已清除，重開頁面後將回復全新狀態。");
-            localStorage.clear(); // 同步清空 UI 記憶
+            localStorage.clear();
             location.reload();
         }
 
@@ -210,25 +212,36 @@
         const floatPrevBtn = document.getElementById('floatPrevBtn');
         const floatNextBtn = document.getElementById('floatNextBtn');
 
-        // 載入時自動讀取上一次的 UI 收折狀態
+        // 🚀 核心優化：集中管理「展開選單」按鈕的文字狀態
+        function updateTogglePanelBtnText() {
+            const isCollapsed = panel.classList.contains('collapsed');
+            if (isCollapsed) {
+                // 當選單被收起時，把即時狀態（日期、座標數）塞進按鈕內
+                const dateText = currentGlobalDate ? currentGlobalDate : "未選擇日期";
+                togglePanelBtn.innerText = `⚙️ 展開選單 | ${dateText} (當日: ${currentDayPointsCount} 點)`;
+            } else {
+                togglePanelBtn.innerText = "⚙️ 收起選單";
+            }
+        }
+
         window.addEventListener('DOMContentLoaded', () => {
             if (localStorage.getItem('panel_collapsed') === 'true') {
                 panel.classList.add('collapsed');
-                togglePanelBtn.innerText = "⚙️ 展開選單";
             }
             if (localStorage.getItem('list_hidden') === 'true') {
                 list.classList.add('hidden');
                 toggleListBtn.classList.add('collapsed');
                 toggleListBtn.innerText = "📍 展開清單";
-                setFloatNavVisibility(true); // 顯示左右浮空按鈕
+                setFloatNavVisibility(true);
             }
+            updateTogglePanelBtnText();
         });
 
         togglePanelBtn.addEventListener('click', function() {
             panel.classList.toggle('collapsed');
             const isCollapsed = panel.classList.contains('collapsed');
-            togglePanelBtn.innerText = isCollapsed ? "⚙️ 展開選單" : "⚙️ 收起選單";
-            localStorage.setItem('panel_collapsed', isCollapsed); // 儲存狀態
+            localStorage.setItem('panel_collapsed', isCollapsed);
+            updateTogglePanelBtnText(); // 點擊時同步切換文字
             setTimeout(() => map.invalidateSize(), 310);
         });
 
@@ -239,17 +252,16 @@
             if (isHidden) {
                 toggleListBtn.classList.add('collapsed');
                 toggleListBtn.innerText = "📍 展開清單";
-                setFloatNavVisibility(true); // 🚀 清單隱藏時，浮現快捷鍵
+                setFloatNavVisibility(true);
             } else {
                 toggleListBtn.classList.remove('collapsed');
                 toggleListBtn.innerText = "📍 軌跡清單";
-                setFloatNavVisibility(false); // 🚀 清單打開時，隱藏快捷鍵
+                setFloatNavVisibility(false);
             }
-            localStorage.setItem('list_hidden', isHidden); // 儲存狀態
+            localStorage.setItem('list_hidden', isHidden);
             setTimeout(() => map.invalidateSize(), 310);
         });
 
-        // 🚀 控制浮空導覽按鈕顯示狀態的輔助函式
         function setFloatNavVisibility(show) {
             const displayStyle = show ? 'flex' : 'none';
             floatPrevBtn.style.display = displayStyle;
@@ -437,13 +449,11 @@
             const prevBtn = document.getElementById('prevDateBtn');
             const nextBtn = document.getElementById('nextDateBtn');
 
-            // 🚀 同步邏輯：建立一個可重複使用的導覽綁定
             function bindNavActions(btnElement, targetDate) {
                 btnElement.disabled = false;
                 btnElement.onclick = () => switchToDate(targetDate);
             }
 
-            // 前一天邏輯 (同步處理大選單與浮空按鈕)
             if (currentIndex > 0) {
                 bindNavActions(prevBtn, activeDates[currentIndex - 1]);
                 bindNavActions(floatPrevBtn, activeDates[currentIndex - 1]);
@@ -457,7 +467,6 @@
                 }
             }
 
-            // 後一天邏輯 (同步處理大選單與浮空按鈕)
             if (currentIndex < activeDates.length - 1 && currentIndex !== -1) {
                 bindNavActions(nextBtn, activeDates[currentIndex + 1]);
                 bindNavActions(floatNextBtn, activeDates[currentIndex + 1]);
@@ -484,7 +493,12 @@
             const dayPoints = dateGroups[dateKey] || [];
             dayPoints.sort((a, b) => (a.dateObj && b.dateObj) ? a.dateObj - b.dateObj : 0);
 
-            document.getElementById('day-counter').innerText = dayPoints.length;
+            currentDayPointsCount = dayPoints.length; // 🚀 更新全域計數器
+            document.getElementById('day-counter').innerText = currentDayPointsCount;
+            
+            // 🚀 當使用者透過左右浮空按鈕切換日期時，即時重繪按鈕上的文字狀態
+            updateTogglePanelBtnText();
+
             const latLngs = [];
 
             dayPoints.forEach((pt, index) => {
