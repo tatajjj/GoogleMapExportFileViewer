@@ -41,6 +41,17 @@
             #timeline-list { width: 100%; height: 250px; border-right: none; border-top: 1px solid #ddd; }
         }
     </style>
+	<link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#2c3e50">
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(reg => console.log('時光機 App 憑證注入成功！', reg))
+                    .catch(err => console.log('憑證注入失敗：', err));
+            });
+        }
+    </script>
 </head>
 <body>
 
